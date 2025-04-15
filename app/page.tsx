@@ -1,184 +1,204 @@
 "use client";
-import { useState, useRef } from 'react';
+import { useState, ChangeEvent, useEffect } from "react";
 
-interface PDFContent {
-  text: string;
-  name?: string;
-  size?: number;
-}
-
-export default function Home() {
-  // State declarations
-  const [extractedText, setExtractedText] = useState<PDFContent | null>(null);
+export default function Page() {
+  const [file, setFile] = useState<File | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [generatedScript, setGeneratedScript] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
-  // PDF Upload Handler
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-    setIsLoading(true);
-    setError(null);
-    setExtractedText(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      // First process the PDF
-      const processResponse = await fetch('/api/process', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!processResponse.ok) {
-        throw new Error(`PDF processing failed: ${processResponse.status}`);
-      }
-
-      const { text } = await processResponse.json();
-      setExtractedText({ text, name: file.name, size: file.size });
-
-    } catch (err) {
-      console.error("Upload failed:", err);
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setIsLoading(false);
-    }
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setFile(e.target.files?.[0] ?? null);
+    setGeneratedScript(""); // Clear previous script when new file is selected
+    setAudioUrl(null); // Clear previous audio when new file is selected
   };
 
-  // Audio Generation
-  const generateAudio = async () => {
-    if (!extractedText?.text) {
-      setError("No text available for audio generation");
+  const handleGenerateScript = async () => {
+    if (!file) {
+      alert("Please upload a PDF file first");
       return;
     }
 
     setIsLoading(true);
-    setError(null);
-    setAudioUrl(null);
+    const formData = new FormData();
+    formData.append("pdf", file);
 
     try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          text: extractedText.text.slice(0, 5000)
-        }),
+      const extractResponse = await fetch("/api/extract", {
+        method: "POST",
+        body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!extractResponse.ok) {
+        throw new Error(`Failed to extract text from PDF: ${extractResponse.status}`);
       }
 
-      const blob = await response.blob();
-      setAudioUrl(URL.createObjectURL(blob));
+      const { text } = await extractResponse.json();
 
-    } catch (err) {
-      console.error("Audio generation failed:", err);
-      setError(err instanceof Error ? err.message : "Audio generation failed");
+      const generateResponse = await fetch("/api/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!generateResponse.ok) {
+        throw new Error(`Failed to generate script: ${generateResponse.status}`);
+      }
+
+      const { script } = await generateResponse.json();
+      setGeneratedScript(script);
+    } catch (error) {
+      console.error("Error:", error);
+      alert(error instanceof Error ? error.message : "Failed to process PDF");
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleGenerateAudio = async () => {
+    if (!generatedScript) {
+      alert("Please generate a script first");
+      return;
+    }
+
+    setIsGeneratingAudio(true);
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: generatedScript }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate audio");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+    } catch (error) {
+      console.error("Error:", error);
+      alert(error instanceof Error ? error.message : "Failed to generate audio");
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  };
+
+  if (!mounted) {
+    return null;
+  }
+
   return (
-    <div className="container mx-auto p-4 max-w-4xl">
-      {/* PDF Upload Section */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-center mb-6">Research Paper to Podcast Converter</h1>
-        
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+    <main className="flex flex-col items-center justify-center px-4 py-12 min-h-screen bg-gray-100">
+      <div className="max-w-3xl w-full text-center mb-10">
+        <h1 className="text-3xl font-bold mb-4">Upload your PDF</h1>
+        <p className="text-gray-700 text-lg">
+          We'll convert it into a podcast script and generate AI voiceover audio.
+        </p>
+      </div>
+
+      <div className="bg-white shadow-lg rounded-xl p-6 w-full max-w-2xl mb-8">
+        <label
+          htmlFor="pdf-upload"
+          className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-6 cursor-pointer hover:border-gray-500"
+        >
+          <p className="text-gray-600 mb-2">Drop your PDF here or click to browse</p>
           <input
+            id="pdf-upload"
             type="file"
-            accept=".pdf"
-            onChange={handleUpload}
+            accept="application/pdf"
             className="hidden"
-            id="file-upload"
-            disabled={isLoading}
+            onChange={handleFileChange}
           />
-          <label
-            htmlFor="file-upload"
-            className={`inline-block px-6 py-3 rounded-lg cursor-pointer ${
-              isLoading
-                ? 'bg-gray-300 text-gray-500'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}
-          >
-            {isLoading ? "Processing..." : "Upload Research Paper (PDF)"}
-          </label>
-          <p className="mt-2 text-sm text-gray-500">
-            {extractedText?.name || "No file selected"}
-          </p>
+        </label>
+
+        {file && (
+          <div className="mt-4 text-center text-sm text-gray-600">
+            Selected file: <span className="font-medium">{file.name}</span>
+          </div>
+        )}
+
+        <button
+          onClick={handleGenerateScript}
+          className="mt-6 w-full px-4 py-2 bg-[#00A67E] text-white rounded-lg font-medium hover:bg-[#008F6B] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!file || isLoading}
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
+              Generating...
+            </div>
+          ) : (
+            'Generate Script'
+          )}
+        </button>
+      </div>
+
+      <div className="bg-black text-white rounded-xl p-6 w-full max-w-2xl mb-6">
+        <p className="text-sm text-gray-400 mb-2">Generated script will appear here...</p>
+        <div className="min-h-[150px] text-left whitespace-pre-wrap">
+          {generatedScript || "Your script content..."}
         </div>
       </div>
 
-      {/* Conditional Audio Generation */}
-      {extractedText?.text && (
-        <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-4">Extracted Content</h2>
-          <div className="bg-gray-50 p-4 rounded-lg mb-6 max-h-60 overflow-y-auto">
-            <p className="whitespace-pre-wrap text-sm">
-              {extractedText.text.slice(0, 1000) + (extractedText.text.length > 1000 ? "..." : "")}
-            </p>
-          </div>
-
-          <button
-            onClick={generateAudio}
-            disabled={isLoading}
-            className={`px-6 py-3 rounded-lg font-medium ${
-              isLoading
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-green-600 hover:bg-green-700 text-white'
-            }`}
-          >
-            {isLoading ? (
-              <span className="flex items-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Generating Audio...
-              </span>
-            ) : (
-              'Generate Podcast Audio'
-            )}
-          </button>
+      <div className="w-full max-w-2xl mb-6">
+        <div className="flex items-end gap-1 h-10">
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={i}
+              className="w-1 bg-blue-500 animate-wave"
+              style={{
+                animationDelay: `${i * 0.1}s`,
+                animationDuration: '1.2s',
+              }}
+            />
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-lg">
-          {error}
-        </div>
-      )}
+      <div className="w-full max-w-2xl mb-6">
+        <button
+          onClick={handleGenerateAudio}
+          className="w-full px-4 py-2 bg-gray-200 text-gray-900 rounded-lg font-medium hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!generatedScript || isGeneratingAudio}
+        >
+          {isGeneratingAudio ? (
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-900 border-t-transparent mr-2"></div>
+              Generating Audio...
+            </div>
+          ) : (
+            'Convert to Audio'
+          )}
+        </button>
+      </div>
 
-      {/* Audio Player */}
       {audioUrl && (
-        <div className="mt-8 bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">Your Podcast</h2>
-          <audio
-            ref={audioRef}
-            controls
-            src={audioUrl}
-            className="w-full"
-          />
-          <div className="mt-4 flex justify-end">
-            <a
-              href={audioUrl}
-              download={`podcast-${new Date().toISOString()}.mp3`}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Download MP3
-            </a>
-          </div>
+        <div className="w-full max-w-2xl mb-6">
+          <audio controls className="w-full">
+            <source src={audioUrl} type="audio/mpeg" />
+            Your browser does not support the audio element.
+          </audio>
         </div>
       )}
-    </div>
+
+      <div className="w-full max-w-2xl">
+        <h2 className="text-xl font-semibold mb-4">Features</h2>
+        <ul className="text-gray-700 list-disc pl-5 space-y-2">
+          <li><strong>Text to Speech:</strong> High-quality AI voice synthesis</li>
+          <li><strong>Voice Cloning:</strong> Custom voice options coming soon</li>
+        </ul>
+      </div>
+    </main>
   );
 }

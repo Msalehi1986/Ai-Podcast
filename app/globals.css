@@ -23,3 +23,32 @@
     color: rgb(var(--foreground));
   }
 }
+
+.wave-back {
+  animation: waveMoveBack 10s ease-in-out infinite alternate;
+}
+
+.wave-front {
+  animation: waveMoveFront 8s ease-in-out infinite alternate;
+}
+
+@keyframes waveMoveBack {
+  0% { transform: translateX(0px); }
+  100% { transform: translateX(-50px); }
+}
+
+@keyframes waveMoveFront {
+  0% { transform: translateX(0px); }
+  100% { transform: translateX(30px); }
+}
+
+@keyframes wave {
+  0%, 100% { height: 20%; }
+  50% { height: 100%; }
+}
+
+.animate-wave {
+  animation-name: wave;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}

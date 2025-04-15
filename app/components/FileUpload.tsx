@@ -1,41 +1,59 @@
-"use client";
-import { useState } from "react";
+import { useState } from 'react';
 
-export default function FileUpload() {
-  const [extractedText, setExtractedText] = useState("");
+interface FileUploadProps {
+  onFileSelect: (file: File) => void;
+}
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+export default function FileUpload({ onFileSelect }: FileUploadProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+      onFileSelect(file);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const response = await fetch("/api/process", {
-        method: "POST",
-        body: formData,
-      });
-      const { text } = await response.json();
-      setExtractedText(text);
-      console.log("Extracted text:", text);
-    } catch (error) {
-      console.error("Upload failed:", error);
+    if (file) {
+      onFileSelect(file);
     }
   };
 
   return (
-    <div className="space-y-4">
-      {/* ... (existing upload button code) ... */}
-      
-      {extractedText && (
-        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-bold mb-2">Extracted Text Preview:</h3>
-          <p className="text-sm whitespace-pre-wrap">
-            {extractedText}
-          </p>
-        </div>
-      )}
+    <div className="mb-8">
+      <input
+        type="file"
+        accept=".pdf"
+        onChange={handleFileChange}
+        className="hidden"
+        id="file-upload"
+      />
+      <label
+        htmlFor="file-upload"
+        className={`block w-full p-4 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors
+          ${isDragging ? 'border-[#00A67E] bg-[#00A67E]/10' : 'border-[#2A2A2A] hover:border-[#00A67E]'}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <span className="block text-sm text-gray-400">
+          Drop your PDF here or click to browse
+        </span>
+      </label>
     </div>
   );
 }

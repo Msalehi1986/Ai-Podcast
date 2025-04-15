@@ -1,14 +1,27 @@
 import { NextResponse } from 'next/server';
-import { PDFDocument } from 'pdf-lib';
-import { TextItem } from 'pdfjs-dist/types/src/display/api';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf';
+import path from 'path';
 
-// 1. Dynamic import for PDF.js with proper typing
-const pdfjsLib = await import('pdfjs-dist');
-pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.min.js');
+// Set up the worker
+if (typeof window === 'undefined') {
+  // Server-side worker configuration
+  GlobalWorkerOptions.workerSrc = path.join(process.cwd(), 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.js');
+} else {
+  // Client-side worker configuration
+  GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+}
+
+interface TextItem {
+  str: string;
+  transform?: number[];
+  dir?: string;
+  width?: number;
+  height?: number;
+  fontName?: string;
+}
 
 export async function POST(request: Request) {
   try {
-    // 2. Get the PDF file
     const formData = await request.formData();
     const file = formData.get('file') as Blob | null;
     
@@ -22,29 +35,19 @@ export async function POST(request: Request) {
     const pdfBuffer = await file.arrayBuffer();
     let fullText = '';
 
-    // 3. Try PDF.js first (better text extraction)
-    try {
-      const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
-      
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        fullText += textContent.items
-          .filter((item): item is TextItem => 'str' in item)
-          .map(item => item.str)
-          .join(' ') + '\n\n';
-      }
+    const pdf = await getDocument({ 
+      data: new Uint8Array(pdfBuffer),
+      disableFontFace: true,
+      verbosity: 0
+    }).promise;
 
-    } catch (jsError) {
-      console.warn('PDF.js failed, trying pdf-lib...');
-      
-      // 4. Fallback to pdf-lib
-      const pdfDoc = await PDFDocument.load(pdfBuffer);
-      for (let i = 0; i < pdfDoc.getPageCount(); i++) {
-        const page = pdfDoc.getPage(i);
-        const text = await (page as any).getTextContent?.() || '';
-        fullText += text + '\n\n';
-      }
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      fullText += (textContent.items as TextItem[])
+        .filter((item) => 'str' in item)
+        .map((item) => item.str)
+        .join(' ') + '\n\n';
     }
 
     return NextResponse.json(
@@ -57,7 +60,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { 
         error: 'Failed to process PDF',
-        details: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
